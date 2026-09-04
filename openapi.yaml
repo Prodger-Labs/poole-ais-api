@@ -1,0 +1,208 @@
+openapi: 3.0.3
+
+info:
+  title: Poole Harbour AIS
+  version: "1.0.0"
+  description: |
+    Live AIS vessel positions from a single receiver in Poole, Dorset.
+
+    One endpoint, one thing: every vessel the receiver can hear **right now**.
+    There is no history behind this API and nothing is stored — the source is
+    the receiver's in-memory tracking window, which holds a vessel for roughly
+    half an hour after its last message and then forgets it.
+
+    The station is a home-built setup: an RTL-SDR Blog V4 dongle and a
+    quarter-wave dipole in a loft, running AIS-catcher on a Raspberry Pi,
+    about 21 nautical miles of usable range over Poole Bay and the approaches.
+    It also feeds AISHub, MarineTraffic, VesselFinder, ShipFinder and
+    BoatBeacon.
+
+    **The data is other people's boats.** AIS is an open broadcast on marine
+    VHF and every vessel here is transmitting its own identity and position
+    deliberately, which is why the same data appears on every public vessel
+    tracker. What this API deliberately does *not* publish is anything about
+    the receiver: its position, and the per-vessel range and bearing figures
+    that would give it away.
+  contact:
+    name: Station operator
+    url: https://github.com/Prodger-Labs/poole-ais-api
+  license:
+    name: CC BY 4.0
+    url: https://creativecommons.org/licenses/by/4.0/
+
+servers:
+  - url: https://gateway.prodger.cc/poole-ais
+    description: Production
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /vessels:
+    get:
+      operationId: getLiveVessels
+      summary: Every vessel the receiver can currently hear
+      description: |
+        Returns the receiver's live tracking window: one entry per vessel
+        currently held, sorted by MMSI so the response is stable between
+        calls for anything diffing it.
+
+        Typically 25-40 vessels. Poole is a busy leisure harbour, so most of
+        them are small Class B craft; the cross-Channel ferries and the
+        Coastguard SAR helicopters are the reliably interesting ones.
+
+        There are no query parameters and no pagination, on purpose — the
+        whole window is small enough to return whole, and filtering it
+        client-side is simpler than a query language nobody asked for.
+      responses:
+        "200":
+          description: The current tracking window.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiveVessels"
+        "401":
+          description: Missing or invalid API key.
+        "429":
+          description: Rate limit exceeded.
+        "503":
+          description: |
+            The receiver is not answering. It is a Raspberry Pi on a domestic
+            connection in an English seaside town; this happens.
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Gravitee-Api-Key
+      description: |
+        Issued on subscribing to a plan in the developer portal.
+
+  schemas:
+    LiveVessels:
+      type: object
+      required: [vessels, count, generated_at]
+      properties:
+        vessels:
+          type: array
+          items:
+            $ref: "#/components/schemas/Vessel"
+        count:
+          type: integer
+          description: Number of vessels in this response.
+          example: 36
+        generated_at:
+          type: string
+          format: date-time
+          description: When this snapshot was taken, UTC.
+          example: "2026-09-04T21:14:07Z"
+
+    Vessel:
+      type: object
+      description: |
+        One vessel, as it is broadcasting itself. Every field here comes from
+        the vessel's own AIS transmission, so completeness varies: a Class B
+        set on a small yacht sends far less than a ferry, and static data
+        (name, callsign, destination) is broadcast much less often than
+        position, so a vessel can appear with a position and no name for
+        several minutes after it is first heard.
+      required: [mmsi, lat, lon]
+      properties:
+        mmsi:
+          type: integer
+          description: |
+            Maritime Mobile Service Identity — the vessel's identifier. The
+            first three digits are the flag state. A `111`-prefixed MMSI is a
+            search-and-rescue aircraft, not a vessel.
+          example: 227289000
+        shipname:
+          type: string
+          nullable: true
+          description: Broadcast name. Null or empty until the vessel sends its static data.
+          example: BARFLEUR
+        callsign:
+          type: string
+          nullable: true
+          example: FNIE
+        country:
+          type: string
+          nullable: true
+          description: Two-letter flag state, derived from the MMSI prefix.
+          example: FR
+        lat:
+          type: number
+          format: double
+          example: 50.706169
+        lon:
+          type: number
+          format: double
+          example: -1.991
+        speed:
+          type: number
+          nullable: true
+          description: Speed over ground, knots.
+          example: 1.8
+        cog:
+          type: number
+          nullable: true
+          description: Course over ground, degrees true.
+          example: 40
+        heading:
+          type: integer
+          nullable: true
+          description: True heading, degrees. Often absent on small craft; 511 means "not available".
+          example: 131
+        shiptype:
+          type: integer
+          nullable: true
+          description: AIS ship-and-cargo type code.
+          example: 69
+        shipclass:
+          type: integer
+          nullable: true
+          description: Decoder's vessel class grouping.
+          example: 4
+        status:
+          type: integer
+          nullable: true
+          description: Navigational status code. 0 is "under way using engine".
+          example: 0
+        destination:
+          type: string
+          nullable: true
+          description: Skipper-entered, free text, and frequently wrong or stale. A UN/LOCODE by convention, not by enforcement.
+          example: GBPOO
+        imo:
+          type: integer
+          nullable: true
+          description: IMO number. 0 or absent on most small craft.
+          example: 9007130
+        draught:
+          type: number
+          nullable: true
+          description: Metres, as entered by the vessel.
+          example: 5
+        validated:
+          type: integer
+          nullable: true
+          description: |
+            1 when the decoder has cross-confirmed this vessel's messages, 0
+            when it has not. Published rather than filtered on: an unvalidated
+            entry is a real thing about the data, and silently dropping those
+            vessels would be a quieter lie than showing the flag.
+          example: 1
+        last_signal_seconds:
+          type: integer
+          nullable: true
+          description: |
+            Seconds since this vessel's last received message. Named for what
+            it is — the receiver reports an age, not a timestamp, and it reads
+            like an epoch to anyone who does not check.
+          example: 2
+        last_seen:
+          type: string
+          format: date-time
+          nullable: true
+          description: The same thing as an absolute UTC time, computed at request.
+          example: "2026-09-04T21:14:05Z"
