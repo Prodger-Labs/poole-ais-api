@@ -74,10 +74,16 @@ components:
   securitySchemes:
     ApiKeyAuth:
       type: apiKey
-      in: header
-      name: X-Gravitee-Api-Key
+      in: query
+      name: api-key
       description: |
         Issued on subscribing to a plan in the developer portal.
+
+        Passed as a query parameter, not a header. This gateway does not
+        accept the header form and answers 401 to it. The upside is that the
+        MCP endpoint works with any client that takes a URL and nothing
+        else; the cost is that the key appears in URLs and access logs, so
+        treat it as a shared secret rather than a credential.
 
   schemas:
     LiveVessels:

@@ -6,11 +6,12 @@ exists rather than a curl in the README:
 
   * An MCP endpoint answers 200 on a JSON-RPC *error*. The failure is in the
     body, so the body is what gets asserted.
-  * A trailing slash can route somewhere else entirely. `/mcp/` and `/mcp`
-    have been observed landing on different servers, one of which completes
-    an `initialize` handshake perfectly happily and then lists zero tools.
-    So: probe both, and require the tool list to be non-empty and to contain
-    the tool this API is supposed to expose.
+  * A trailing slash does not reach the MCP entrypoint. `/mcp` handshakes
+    properly; `/mcp/` misses the entrypoint path match, falls through to the
+    http-proxy entrypoint and is forwarded to the backend, which serves GET
+    only and answers 501. Both are asserted, so a future version that starts
+    matching the trailing slash says so rather than quietly changing which
+    server answers.
   * Listing a tool does not mean calling it works. The gateway can advertise
     a tool whose upstream call fails on the shared secret, so the last check
     drives a real `tools/call` and requires actual vessels back.
@@ -58,9 +59,21 @@ def check(label: str, ok: bool, detail: str = "") -> None:
         failures.append(label)
 
 
+def url(path: str) -> str:
+    """The key goes in the query string, not a header.
+
+    This installation's gateway does not accept X-Gravitee-Api-Key (or any
+    other header form) and answers 401; `?api-key=` is what works. Verified
+    against the live gateway, both directly and through Cloudflare. It is
+    also what makes the MCP endpoint usable by clients that take a URL and
+    nothing else — at the cost of the key appearing in URLs and access logs.
+    """
+    sep = "&" if "?" in path else "?"
+    return f"{path}{sep}api-key={API_KEY}"
+
+
 def headers() -> dict:
     return {
-        "X-Gravitee-Api-Key": API_KEY,
         "Content-Type": "application/json",
         # Streamable HTTP wraps the payload in SSE frames, so ask for both
         # and parse accordingly below.
@@ -68,7 +81,7 @@ def headers() -> dict:
     }
 
 
-def rpc(url: str, method: str, params: dict | None = None, rpc_id: int = 1):
+def rpc(target: str, method: str, params: dict | None = None, rpc_id: int = 1):
     """One JSON-RPC call. Returns (http_status, parsed_body_or_None, raw_text).
 
     The response may be a bare JSON object or an SSE frame sequence
@@ -78,7 +91,7 @@ def rpc(url: str, method: str, params: dict | None = None, rpc_id: int = 1):
     body = {"jsonrpc": "2.0", "id": rpc_id, "method": method}
     if params is not None:
         body["params"] = params
-    r = requests.post(url, headers=headers(), json=body, timeout=20)
+    r = requests.post(url(target), headers=headers(), json=body, timeout=20)
     text = r.text
     parsed = None
     try:
@@ -95,7 +108,7 @@ def rpc(url: str, method: str, params: dict | None = None, rpc_id: int = 1):
 
 
 print("REST")
-r = requests.get(f"{BASE}/vessels", headers={"X-Gravitee-Api-Key": API_KEY}, timeout=20)
+r = requests.get(url(f"{BASE}/vessels"), timeout=20)
 check("GET /vessels returns 200", r.status_code == 200, f"got {r.status_code}")
 rest_ok = False
 if r.status_code == 200:
@@ -123,7 +136,7 @@ check("a call with no API key is refused", r.status_code in (401, 403), f"got {r
 print()
 print("MCP")
 # Both spellings, because they have been seen to route to different servers.
-for path in (f"{BASE}/mcp", f"{BASE}/mcp/"):
+for path in (f"{BASE}/mcp",):
     print(f"  -- {path}")
     status, body, raw = rpc(path, "initialize", {
         "protocolVersion": "2024-11-05",
@@ -143,6 +156,18 @@ for path in (f"{BASE}/mcp", f"{BASE}/mcp/"):
     names = [t.get("name") for t in tools]
     check(f"{path} lists at least one tool", len(tools) > 0, f"{names}")
     check(f"{path} lists {TOOL_NAME}", TOOL_NAME in names, f"{names}")
+
+print()
+print("Trailing slash does NOT reach the MCP entrypoint")
+# /mcp/ misses the mcp entrypoint's path match and falls through to the
+# http-proxy entrypoint, which forwards to the backend. The backend serves
+# GET only, so a POST there comes back 501 from Python's own http.server
+# rather than anything MCP-shaped. Asserted so that if a future version
+# starts matching the trailing slash, this says so rather than silently
+# changing which server answers.
+r = requests.post(url(f"{BASE}/mcp/"), headers=headers(), json={"jsonrpc": "2.0", "id": 9, "method": "initialize"}, timeout=20)
+check("/mcp/ does not answer MCP (it falls through to http-proxy)",
+      r.status_code == 501 or "jsonrpc" not in r.text, f"status {r.status_code}")
 
 print()
 print("A real tool call, not just a listing")
