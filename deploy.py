@@ -337,6 +337,7 @@ def create() -> str:
 
     session.post(f"{V2}/apis/{api_id}/_start", timeout=15).raise_for_status()
     publish_to_portal(api_id)
+    add_to_portal_catalogue(api_id)
     log(f"  created and started -> {api_id}")
     return api_id
 
@@ -366,6 +367,74 @@ def publish_to_portal(api_id: str) -> None:
         log(f"  publish failed ({r.status_code}): {r.text[:500]}")
     r.raise_for_status()
     log("  published to the developer portal catalogue")
+
+
+# The catalogue root the API entries hang under. Found by reading the tree, not
+# guessed: the two entries already there were children of an API_PRODUCT folder,
+# and putting ours inside somebody else's product pack would have been wrong
+# even though it would have worked.
+PORTAL_ROOT_ID = os.environ.get("GRAVITEE_PORTAL_ROOT_ID",
+                                "008aeb47-111c-49db-b5ff-5a82ae1ff350")
+
+
+def add_to_portal_catalogue(api_id: str) -> None:
+    """Put the API in the developer portal's catalogue.
+
+    lifecycleState PUBLISHED is NOT enough, which is the thing that cost hours.
+    Portal Next does not render the API list at all: it renders a tree of
+    "portal navigation items", and an API that is PUBLIC, PUBLISHED and STARTED
+    still does not appear until somebody adds a navigation item pointing at it.
+
+    Three traps, all of them silent:
+
+    1. The response key is "items", not "data" like every other v2 list
+       endpoint here. Parsing it as "data" yields an empty tree and the obvious
+       conclusion that there is nothing there.
+
+    2. Create 400s without "visibility", naming the field, which is fine.
+
+    3. Create ACCEPTS "published": true AND IGNORES IT. The item comes back
+       published=false, 201 Created, no warning. It exists, it is correct in
+       every other respect, and it does not appear. Exactly the same shape as
+       lifecycleState being ignored on import, one layer up. So the publish is
+       a second call, and it is a PUT of the COMPLETE object: a partial body
+       400s on the fields it cannot see, and PATCH is 405.
+
+    Requires a build that knows PortalNavigationItem.Type.API_PRODUCT. On
+    4.12.x every management read of this collection throws on a row written by
+    a newer build, so this whole function 500s. That is a downgrade fault, not
+    a permissions one.
+    """
+    r = session.get(f"{V2}/portal-navigation-items", timeout=20)
+    if r.status_code >= 400:
+        log(f"  portal catalogue unreadable ({r.status_code}): {r.text[:200]}")
+        log("  a 500 here usually means the stack has been downgraded off 4.13")
+        return
+    items = r.json().get("items", [])
+    if any(i.get("apiId") == api_id for i in items):
+        log("  already in the portal catalogue")
+        return
+
+    body = {"type": "API", "apiId": api_id, "title": API_NAME,
+            "area": "TOP_NAVBAR", "parentId": PORTAL_ROOT_ID,
+            "order": len([i for i in items if i.get("type") == "API"]) + 1,
+            "visibility": "PUBLIC", "categoryIds": []}
+    r = session.post(f"{V2}/portal-navigation-items", json=body, timeout=30)
+    if r.status_code >= 400:
+        log(f"  catalogue entry failed ({r.status_code}): {r.text[:400]}")
+        return
+    item = r.json()
+    log(f"  catalogue entry created ({item['id'][:8]})")
+
+    # The second call, and the reason for it: published came back false.
+    if not item.get("published"):
+        body["published"] = True
+        r = session.put(f"{V2}/portal-navigation-items/{item['id']}", json=body, timeout=30)
+        if r.status_code >= 400:
+            log(f"  catalogue entry created but NOT published ({r.status_code}): {r.text[:300]}")
+            log("  it will not appear in the portal until it is")
+            return
+        log("  and published, so it actually appears")
 
 
 def update(api_id: str) -> None:
@@ -408,6 +477,7 @@ def update(api_id: str) -> None:
         )
     log(f"  updated, {len(flows)} flow(s) intact")
     publish_to_portal(api_id)
+    add_to_portal_catalogue(api_id)
 
 
 def deploy(api_id: str) -> None:
