@@ -270,7 +270,21 @@ def api_definition() -> dict:
 
 
 def plan_definition() -> dict:
+    """A V4 API-key plan.
+
+    `definitionVersion: "V4"` is load-bearing and its absence is not obvious
+    from the failure. Without it the import returns 400 with
+
+        Cannot invoke "AbstractPlan.getSecurity()" because the return value
+        of "Plan.getPlanDefinitionV4()" is null
+
+    which reads like a problem with the security block rather than a missing
+    version discriminator on the plan. The rest of the fields below are
+    likewise not optional decoration: the importer wants the full V4 plan
+    shape, not a minimal one.
+    """
     return {
+        "definitionVersion": "V4",
         "name": PLAN_NAME,
         "description": "Free. Sign up in the developer portal and use the key straight away.",
         "security": {"type": "API_KEY", "configuration": {}},
@@ -278,8 +292,14 @@ def plan_definition() -> dict:
         # approves it by hand, which for a public API is the same as being
         # closed.
         "validation": "AUTO",
+        "type": "API",
         "mode": "STANDARD",
         "status": "PUBLISHED",
+        "order": 1,
+        "characteristics": [],
+        "commentRequired": False,
+        "excludedGroups": [],
+        "tags": [],
         "flows": [],
     }
 
