@@ -336,8 +336,36 @@ def create() -> str:
             log(f"  published plan '{plan.get('name')}'")
 
     session.post(f"{V2}/apis/{api_id}/_start", timeout=15).raise_for_status()
+    publish_to_portal(api_id)
     log(f"  created and started -> {api_id}")
     return api_id
+
+
+def publish_to_portal(api_id: str) -> None:
+    """Move the API to lifecycleState PUBLISHED, which is what puts it in the
+    developer portal catalogue.
+
+    The import definition sets "lifecycleState": "PUBLISHED" inline and it is
+    SILENTLY IGNORED - the API comes back CREATED. Nothing errors, the API
+    works perfectly through the gateway, and it simply never appears in the
+    portal. Every other PUBLIC API on the installation this was built against
+    was sitting in CREATED for the same reason, which is why that portal's
+    catalogue was empty rather than broken.
+
+    Separate from `visibility: PUBLIC`: visibility decides who may see it,
+    lifecycleState decides whether it is listed at all. Both are needed.
+    """
+    r = session.get(f"{V2}/apis/{api_id}", timeout=15)
+    r.raise_for_status()
+    api = r.json()
+    if api.get("lifecycleState") == "PUBLISHED":
+        return
+    api["lifecycleState"] = "PUBLISHED"
+    r = session.put(f"{V2}/apis/{api_id}", json=api, timeout=30)
+    if r.status_code >= 400:
+        log(f"  publish failed ({r.status_code}): {r.text[:500]}")
+    r.raise_for_status()
+    log("  published to the developer portal catalogue")
 
 
 def update(api_id: str) -> None:
@@ -347,8 +375,9 @@ def update(api_id: str) -> None:
     The flows are then read back and checked. Some Gravitee versions drop the
     `flows` array on a PUT, which would silently disable every policy on the
     API - the secret injection included, so the receiver would start refusing
-    the gateway rather than anything failing loudly at deploy time. Verify
-    rather than assume, and say so plainly if it happened.
+    the gateway rather than anything failing loudly at deploy time. Measured
+    on 4.12.x and flows DO survive the PUT there, but the check stays: it
+    costs one request and the failure it guards against is silent.
     """
     log(f"'{API_NAME}' exists ({api_id}), updating in place (plans untouched)...")
     definition = api_definition()["api"]
@@ -378,6 +407,7 @@ def update(api_id: str) -> None:
             "updating, accepting that it recreates plans."
         )
     log(f"  updated, {len(flows)} flow(s) intact")
+    publish_to_portal(api_id)
 
 
 def deploy(api_id: str) -> None:
