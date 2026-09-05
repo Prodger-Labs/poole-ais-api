@@ -50,6 +50,18 @@ BASE = f"{GATEWAY}/poole-ais"
 API_KEY = os.environ.get("AIS_API_KEY", "")
 TOOL_NAME = "get_live_vessels"
 
+if not API_KEY:
+    # Without this the run does not fail usefully, it fails confusingly: every
+    # request goes out as "?api-key=" and comes back 401, producing six
+    # unrelated-looking failures that read like a broken deployment. The key is
+    # not a deploy credential and is deliberately not in .env.example's
+    # required set, so an empty one is a setup mistake, not a fault in the API.
+    sys.exit(
+        "AIS_API_KEY is not set.\n"
+        "  Subscribe to the Public plan in the developer portal, then put the\n"
+        "  key in .env as AIS_API_KEY=... (see .env.example)."
+    )
+
 failures: list[str] = []
 
 
@@ -177,8 +189,18 @@ content = result.get("content") or []
 text = " ".join(c.get("text", "") for c in content if isinstance(c, dict))
 check("the call returned without an error", bool(body) and "error" not in body,
       json.dumps((body or {}).get("error", ""))[:300] or raw[:150])
-check("and came back with vessel data", '"mmsi"' in text or '"vessels"' in text, text[:150])
-check("with the receiver position still absent", '"station"' not in text and '"distance"' not in text)
+has_vessels = '"mmsi"' in text or '"vessels"' in text
+check("and came back with vessel data", has_vessels, text[:150])
+
+# Absence has to be asserted against something. Checking that "station" is not
+# in an empty string passes on every failure, which is exactly what happened on
+# 2026-09-05: the tool call 401'd, text was "", and the one check guarding the
+# receiver's position reported PASS while everything around it failed. Require
+# a real payload first, so the check can only pass by actually being true.
+leaked = [f for f in ('"station"', '"distance"', '"bearing"', '"level"', '"ppm"') if f in text]
+check("with the receiver position still absent",
+      has_vessels and not leaked,
+      "no payload to assert against" if not has_vessels else ", ".join(leaked))
 
 print()
 if failures:
