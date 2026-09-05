@@ -23,9 +23,18 @@ Raspberry Pi 4. About 21 nautical miles of usable range: the whole harbour,
 Poole Bay, and the cross-Channel ferry routes out past Old Harry.
 
 Reception is not a circle. The loft blocks the landward side almost
-completely, so the coverage is roughly a 160° arc facing the water and
-essentially nothing behind it. Vessels appear and disappear at the edges of
+completely, so for vessels the coverage is roughly a 160° arc facing the water
+and essentially nothing behind it. Boats appear and disappear at the edges of
 that arc rather than at a neat range limit.
+
+That arc is a **surface** limit and does not apply to aircraft. Measured over
+12,862 recorded contacts: outside the arc there are eleven vessel fixes, all
+inside 1.2 nautical miles, close enough for signal to get round the building.
+There is also a search-and-rescue helicopter heard at 9 and 16 nautical miles
+from bearings where no boat has ever been heard beyond about a mile, because it
+was several thousand feet up and above the roofline. The loft blocks the low
+elevation angles surface traffic arrives on; it does not block something
+airborne.
 
 The same receiver feeds AISHub, MarineTraffic, VesselFinder, ShipFinder and
 BoatBeacon. This API is the same data, without the aggregator in the middle.
