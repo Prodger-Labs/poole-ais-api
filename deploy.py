@@ -155,9 +155,9 @@ MCP_TOOLS = [
         "toolDefinition": {
             "name": "get_live_vessels",
             "description": (
-                "Every vessel currently audible to a single AIS receiver in Poole, Dorset, UK "
-                "(approximately 50.72N, 2.01W, about 21 nautical miles of range over Poole Bay "
-                "and the Channel approaches). Returns live positions only - there is no history "
+                "Every vessel currently audible to a single AIS receiver in Poole, Dorset, UK, "
+                "covering Poole Harbour, Poole Bay and the Channel approaches out to about "
+                "21 nautical miles. Returns live positions only - there is no history "
                 "and nothing is stored. Typically 25-40 vessels, mostly small leisure craft, "
                 "plus cross-Channel ferries and occasionally a Coastguard search-and-rescue "
                 "helicopter. Use for questions about what is on the water near Poole right now."
