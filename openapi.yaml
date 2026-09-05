@@ -198,6 +198,24 @@ components:
             entry is a real thing about the data, and silently dropping those
             vessels would be a quieter lie than showing the flag.
           example: 1
+        source:
+          type: string
+          enum: [local]
+          description: |
+            Where this position came from. Always `local`: decoded by the
+            station's own aerial, on the station's own clock.
+
+            It exists as a field rather than being implied because the station
+            also holds relayed positions from the AISHub network, which cover
+            the arc its aerial cannot hear. Those are deliberately NOT published
+            here. AISHub's terms restrict use that is a source of or substitute
+            for their service, and republishing their network through an API
+            with open signup would be exactly that. The station's own reception
+            is the station's to publish; the network is not.
+
+            So a consumer never has to ask which they are looking at, and if a
+            second value ever appears here it means that decision changed.
+          example: local
         last_signal_seconds:
           type: integer
           nullable: true

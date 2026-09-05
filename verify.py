@@ -25,6 +25,7 @@ import json
 import os
 import pathlib
 import sys
+import time
 
 import requests
 
@@ -63,6 +64,22 @@ if not API_KEY:
     )
 
 failures: list[str] = []
+
+
+def pace() -> None:
+    """Stay under the API's own rate limit while testing it.
+
+    The Public plan allows five requests a second, and this script now makes
+    enough calls in quick succession to trip it. When it does, the refusal does
+    not announce itself as a rate limit: a later check simply gets no payload
+    and reports "came back with vessel data" as a failure, which reads exactly
+    like a broken API and is not.
+
+    That happened when the spec-agreement check was added: one extra request
+    made two unrelated checks fail. So the pause is here, named, rather than
+    left for somebody to rediscover as a flaky suite.
+    """
+    time.sleep(0.4)
 
 
 def check(label: str, ok: bool, detail: str = "") -> None:
@@ -181,6 +198,40 @@ r = requests.post(url(f"{BASE}/mcp/"), headers=headers(), json={"jsonrpc": "2.0"
 check("/mcp/ does not answer MCP (it falls through to http-proxy)",
       r.status_code == 501 or "jsonrpc" not in r.text, f"status {r.status_code}")
 
+pace()
+print()
+print("The published spec and the live API agree")
+
+# The spec is what a consumer generates a client from, so a field the API
+# returns and the spec omits produces a type that silently drops it. That is
+# exactly what happened to `source` on 5 Sep 2026: it was added to the API and
+# not to openapi.yaml, and nothing noticed, because every other check here asks
+# whether particular fields are PRESENT and none asks whether the two agree.
+#
+# Compared BOTH ways deliberately. A field in the API and not the spec is an
+# undocumented one; a field in the spec and not the API is a promise the
+# service does not keep, and that is the worse direction.
+try:
+    import yaml
+except ImportError:
+    sys.exit("PyYAML is needed to check the spec against the API: pip install -r requirements.txt")
+
+spec = yaml.safe_load(pathlib.Path(__file__).resolve().parent.joinpath("openapi.yaml").read_text())
+spec_fields = set(spec["components"]["schemas"]["Vessel"]["properties"])
+live = requests.get(url(f"{BASE}/vessels"), timeout=20).json()
+live_fields = set(live["vessels"][0]) if live.get("vessels") else set()
+check("there is a vessel to compare against at all", bool(live_fields))
+# check() here is (label, ok, detail), NOT (label, got, want) like the tests in
+# the poole-ais repo. Passing a set as `ok` inverts the check: empty is falsy,
+# so it fails precisely when the two agree. Done exactly that once already.
+undocumented = sorted(live_fields - spec_fields)
+unkept = sorted(spec_fields - live_fields)
+check("every field the API returns is in the spec", not undocumented,
+      f"undocumented: {undocumented}")
+check("and every field the spec promises is returned", not unkept,
+      f"promised but absent: {unkept}")
+
+pace()
 print()
 print("A real tool call, not just a listing")
 status, body, raw = rpc(f"{BASE}/mcp", "tools/call", {"name": TOOL_NAME, "arguments": {}}, rpc_id=3)
