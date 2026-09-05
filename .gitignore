@@ -1,4 +1,8 @@
 .env
+# Sam's global gitignore carries `.env.*`, which silently swallows this
+# repo's own example file -- the README tells people to copy it, so without
+# this negation a clone would not contain the thing it points at.
+!.env.example
 __pycache__/
 *.pyc
 .venv/
