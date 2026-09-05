@@ -33,9 +33,14 @@ BoatBeacon. This API is the same data, without the aggregator in the middle.
 ## Quick start
 
 ```bash
-curl -H "X-Gravitee-Api-Key: $KEY" \
-     https://gateway.prodger.cc/poole-ais/vessels
+curl "https://gateway.prodger.cc/poole-ais/vessels?api-key=$KEY"
 ```
+
+The key is a **query parameter, not a header**. This gateway does not accept
+the header form and answers 401 to it. The upside is that the MCP endpoint
+works with any client that takes a URL and nothing else; the cost is that the
+key ends up in URLs and access logs, so treat it as a shared secret rather
+than a credential.
 
 ```json
 {
@@ -70,20 +75,20 @@ The full schema is in [`openapi.yaml`](openapi.yaml).
 ## As an MCP server
 
 One tool, `get_live_vessels`, taking no arguments. Point any MCP client at the
-`/mcp` endpoint with the API key as a header.
+`/mcp` endpoint with the key in the URL.
 
 ```json
 {
   "mcpServers": {
     "poole-harbour-ais": {
-      "url": "https://gateway.prodger.cc/poole-ais/mcp",
-      "headers": {
-        "X-Gravitee-Api-Key": "your-key"
-      }
+      "url": "https://gateway.prodger.cc/poole-ais/mcp?api-key=your-key"
     }
   }
 }
 ```
+
+Note the path has **no trailing slash**. `/mcp` reaches the MCP entrypoint;
+`/mcp/` misses it, falls through to the plain HTTP proxy and answers 501.
 
 Questions it can answer: what's on the water near Poole right now, whether the
 Barfleur is running, how many boats are moving in the harbour, whether a
@@ -170,10 +175,12 @@ reimport would be simpler, and would also cancel every subscription and revoke
 every key that anyone had signed up for.
 
 `make verify` is the part worth reading. An MCP endpoint returns HTTP 200 on a
-JSON-RPC error, and a trailing slash can route to an entirely different server
-that completes a handshake and then lists no tools — so it asserts the
-handshake body, requires the tool list to be non-empty and to contain the
-expected tool, and finishes by driving a real call and requiring vessels back.
+JSON-RPC error, so it asserts the handshake body rather than the status code,
+requires the tool list to be non-empty and to contain the expected tool, and
+finishes by driving a real call and requiring actual vessels back. It also
+asserts that `/mcp/` does *not* answer MCP, so that if a future version starts
+matching the trailing slash it says so rather than quietly changing which
+server answers.
 
 ## Licence
 
