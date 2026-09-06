@@ -53,8 +53,8 @@ TOOL_NAME = "get_live_vessels"
 
 if not API_KEY:
     # Without this the run does not fail usefully, it fails confusingly: every
-    # request goes out as "?api-key=" and comes back 401, producing six
-    # unrelated-looking failures that read like a broken deployment. The key is
+    # request goes out with an empty X-Api-Key and comes back 401, producing
+    # six unrelated-looking failures that read like a broken deployment. The key is
     # not a deploy credential and is deliberately not in .env.example's
     # required set, so an empty one is a setup mistake, not a fault in the API.
     sys.exit(
@@ -89,21 +89,27 @@ def check(label: str, ok: bool, detail: str = "") -> None:
 
 
 def url(path: str) -> str:
-    """The key goes in the query string, not a header.
+    """Paths are used as-is. The key travels in a header, see headers().
 
-    This installation's gateway does not accept X-Gravitee-Api-Key (or any
-    other header form) and answers 401; `?api-key=` is what works. Verified
-    against the live gateway, both directly and through Cloudflare. It is
-    also what makes the MCP endpoint usable by clients that take a URL and
-    nothing else — at the cost of the key appearing in URLs and access logs.
+    This used to append `?api-key=`, on the belief that the gateway rejected
+    every header form. That was half right and the wrong half mattered. The
+    gateway rejects X-Gravitee-Api-Key, which is Gravitee's default name, and
+    accepts X-Api-Key. Measured 6 Sep 2026 against the live gateway on this
+    API and on the LLM proxy: X-Gravitee-Api-Key 401, X-Api-Key 200 on both.
+
+    Why it is worth caring: the gateway logs the full request URI, so every
+    call made with `?api-key=` wrote the key in clear text into the analytics
+    store. The key in use before that date was rotated for exactly this
+    reason.
     """
-    sep = "&" if "?" in path else "?"
-    return f"{path}{sep}api-key={API_KEY}"
+    return path
 
 
 def headers() -> dict:
     return {
         "Content-Type": "application/json",
+        # NOT X-Gravitee-Api-Key. See url() above.
+        "X-Api-Key": API_KEY,
         # Streamable HTTP wraps the payload in SSE frames, so ask for both
         # and parse accordingly below.
         "Accept": "application/json, text/event-stream",
@@ -137,7 +143,7 @@ def rpc(target: str, method: str, params: dict | None = None, rpc_id: int = 1):
 
 
 print("REST")
-r = requests.get(url(f"{BASE}/vessels"), timeout=20)
+r = requests.get(url(f"{BASE}/vessels"), headers=headers(), timeout=20)
 check("GET /vessels returns 200", r.status_code == 200, f"got {r.status_code}")
 rest_ok = False
 if r.status_code == 200:
@@ -218,7 +224,7 @@ except ImportError:
 
 spec = yaml.safe_load(pathlib.Path(__file__).resolve().parent.joinpath("openapi.yaml").read_text())
 spec_fields = set(spec["components"]["schemas"]["Vessel"]["properties"])
-live = requests.get(url(f"{BASE}/vessels"), timeout=20).json()
+live = requests.get(url(f"{BASE}/vessels"), headers=headers(), timeout=20).json()
 live_fields = set(live["vessels"][0]) if live.get("vessels") else set()
 check("there is a vessel to compare against at all", bool(live_fields))
 # check() here is (label, ok, detail), NOT (label, got, want) like the tests in
