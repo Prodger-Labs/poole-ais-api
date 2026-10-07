@@ -10,3 +10,5 @@ updates:
       timezone: Europe/London
     labels:
       - dependencies
+    cooldown:
+      default-days: 7
