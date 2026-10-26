@@ -12,3 +12,6 @@ updates:
       - dependencies
     cooldown:
       default-days: 7
+    groups:
+      python:
+        patterns: ["*"]
