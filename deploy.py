@@ -83,6 +83,11 @@ V2 = f"{MANAGEMENT_URL}/v2/environments/DEFAULT"
 session = requests.Session()
 session.auth = (ADMIN_USER, ADMIN_PASSWORD)
 session.headers.update({"Content-Type": "application/json"})
+# Set when GRAVITEE_MANAGEMENT_URL is an address and not the public name (a tailnet IP, say). The box's nginx picks a server block by Host,
+# and the wrong block answers 200 with console HTML while the management API is not there at all. Empty: the URL's own host is sent.
+HOST_HEADER = os.environ.get("GRAVITEE_HOST_HEADER", "")
+if HOST_HEADER:
+    session.headers["Host"] = HOST_HEADER
 
 
 def log(message: str) -> None:

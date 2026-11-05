@@ -178,6 +178,8 @@ make deploy             # publish or update the API on Gravitee
 make verify             # prove it works, as REST and as MCP
 ```
 
+If you reach the management API by address instead of its public name, set `GRAVITEE_MANAGEMENT_URL` to that address and `GRAVITEE_HOST_HEADER` to the name the server expects (`gravitee.prodger.cc` here), so the right virtual host answers.
+
 `deploy.py` is idempotent by design: it creates the API once and updates it in
 place afterwards, and never touches a plan that already exists. Delete and
 reimport would be simpler, and would also cancel every subscription and revoke
